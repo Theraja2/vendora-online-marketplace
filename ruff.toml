@@ -1,0 +1,12 @@
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = ["E", "F", "B", "I", "UP", "SIM"]
+# Calling Depends()/Query() in an argument default is how FastAPI declares
+# dependencies -- it is the documented idiom, not a mutable-default bug.
+ignore = ["B008", "E501"]
+
+[lint.per-file-ignores]
+"app/models/*.py" = ["F401"]
+"tests/*.py" = ["S101"]
