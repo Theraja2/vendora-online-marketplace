@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 15
+
     # Echoes every SQL statement to stdout. Never enable outside local debugging:
     # the log stream would include user data.
     DEBUG: bool = False

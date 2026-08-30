@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class RefreshTokenRequest(BaseModel):
@@ -9,3 +9,10 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    reset_token: str | None = None
+    new_password: str | None = Field(default=None, min_length=8)
