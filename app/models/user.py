@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, String, func, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -12,8 +12,7 @@ if TYPE_CHECKING:
     from app.models.order import Order
     from app.models.review import Review
     from app.models.seller import Seller
-
-
+    
 
 class User(Base):
     __tablename__ = "users"
@@ -68,6 +67,11 @@ class User(Base):
         server_default=Role.CUSTOMER.value,
         index=True
     )
+
+    refresh_token: Mapped[str | None] = mapped_column(
+    Text,
+    nullable=True,
+)
 
     is_active: Mapped[bool] = mapped_column(
         Boolean,
