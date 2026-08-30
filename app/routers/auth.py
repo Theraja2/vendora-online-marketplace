@@ -25,6 +25,16 @@ from app.security.password import (
     waste_time_like_a_real_verify,
 )
 
+from app.schemas.auth import ForgotPasswordRequest
+
+from app.security import (
+    create_password_reset_token,
+    decode_password_reset_token,
+    hash_password,
+)
+
+
+
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
@@ -188,3 +198,60 @@ async def refresh_access_token(
         refresh_token=create_refresh_token(user.id),
         token_type="bearer",
     )
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_session),
+):
+    result = await db.execute(
+        select(User).where(User.email == data.email)
+    )
+
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    # STEP 1: Generate reset token
+    if data.reset_token is None:
+        reset_token = create_password_reset_token(user.id)
+
+        return {
+            "message": "Password reset token generated successfully",
+            "reset_token": reset_token,
+        }
+
+    # STEP 2: Verify reset token
+    try:
+        token_user_id = decode_password_reset_token(data.reset_token)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset token",
+        )
+
+    if token_user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid password reset token",
+        )
+
+    if data.new_password is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password is required",
+        )
+
+    # Hash and update the password
+    user.password = hash_password(data.new_password)
+
+    await db.commit()
+
+    return {
+        "message": "Password reset successfully",
+    }
