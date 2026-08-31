@@ -33,6 +33,10 @@ from app.security import (
     hash_password,
 )
 
+from app.schemas.auth import ChangePasswordRequest
+from app.security import hash_password, verify_password
+from app.dependencies import get_current_user
+
 
 
 router = APIRouter(
@@ -110,27 +114,31 @@ async def register_user(
     response_model=TokenResponse,
 )
 async def login_user(
+    # login_data: UserLogin,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_session),
-) -> TokenResponse:
+):
+    data = UserLogin(
+        username=form_data.username,
+        password=form_data.password,
+    )
 
     user = await db.scalar(
         select(User).where(
-            User.username == form_data.username
+            User.username == data.username
         )
     )
 
     if user is None:
-        # Spend the same Argon2 cost as a real verify so response time does not
-        # reveal whether the username exists.
-        waste_time_like_a_real_verify()
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password.",
         )
 
-    if not verify_password(form_data.password, user.password):
+    if not verify_password(
+        data.password,
+        user.password,
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password.",
@@ -142,9 +150,21 @@ async def login_user(
             detail="User account is inactive.",
         )
 
+    # Create access token.
+    access_token = create_access_token(user.id)
+
+    # Create refresh token.
+    refresh_token = create_refresh_token(user.id)
+
+    # Store the refresh token in the database.
+    user.refresh_token = refresh_token
+
+    # Save the refresh token to PostgreSQL.
+    await db.commit()
+
     return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
     )
 
@@ -193,11 +213,26 @@ async def refresh_access_token(
             detail="User account is inactive",
         )
 
+    # Verify that the supplied refresh token
+    # matches the refresh token stored for this user.
+    if user.refresh_token != data.refresh_token:
+        raise credentials_exception
+
+    # Create a new access token and refresh token.
+    new_access_token = create_access_token(user.id)
+    new_refresh_token = create_refresh_token(user.id)
+
+    # Store the new refresh token in the database.
+    user.refresh_token = new_refresh_token
+
+    await db.commit()
+
     return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
         token_type="bearer",
     )
+
 
 
 @router.post("/forgot-password")
@@ -254,4 +289,51 @@ async def forgot_password(
 
     return {
         "message": "Password reset successfully",
+    }
+
+
+@router.post("/change-password")
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    is_current_password_valid = verify_password(
+        data.current_password,
+        current_user.password,
+    )
+
+    if not is_current_password_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if data.current_password == data.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password",
+        )
+
+    current_user.password = hash_password(data.new_password)
+
+    await db.commit()
+
+    return {
+        "message": "Password changed successfully",
+    }
+
+
+
+@router.post("/logout")
+async def logout(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    current_user.refresh_token = None
+
+    await db.commit()
+
+    return {
+        "message": "Logged out successfully",
     }

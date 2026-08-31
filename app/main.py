@@ -13,6 +13,10 @@ from app.routers.products import router as products_router
 from app.routers.sellers import router as sellers_router
 from app.routers.users import router as users_router
 from app.routers.cart import router as cart_router
+from app.routers.checkout import router as checkout_router
+from app.routers.payments import router as payments_router
+from app.routers.orders import router as orders_router
+from app.routers.reviews import router as reviews_router
 
 
 @asynccontextmanager
@@ -52,6 +56,10 @@ app.include_router(sellers_router)
 app.include_router(categories_router)
 app.include_router(products_router)
 app.include_router(cart_router)
+app.include_router(checkout_router)
+app.include_router(payments_router)
+app.include_router(orders_router)
+app.include_router(reviews_router)
 
 
 @app.get("/", tags=["Health"])
