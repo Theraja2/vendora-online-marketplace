@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,7 +17,7 @@ async def get_user_cart(
         select(Cart)
         .where(Cart.user_id == user_id)
         .options(
-            selectinload(Cart.cart_items)
+            selectinload(Cart.items)
             .selectinload(CartItem.product)
         )
     )
@@ -83,6 +83,16 @@ async def add_product_to_cart(
     if not product.is_available:
         raise ValueError("Product is not available.")
 
+    if quantity <= 0:
+        raise ValueError(
+            "Quantity must be greater than zero."
+        )
+
+    if quantity > product.stock_quantity:
+        raise ValueError(
+            "Requested quantity exceeds available stock."
+        )
+
     cart = await get_or_create_user_cart(
         session=session,
         user_id=user_id,
@@ -95,7 +105,14 @@ async def add_product_to_cart(
     )
 
     if cart_item is not None:
-        cart_item.quantity += quantity
+        new_quantity = cart_item.quantity + quantity
+
+        if new_quantity > product.stock_quantity:
+            raise ValueError(
+                "Requested quantity exceeds available stock."
+            )
+
+        cart_item.quantity = new_quantity
 
     else:
         cart_item = CartItem(
@@ -124,7 +141,135 @@ async def view_user_cart(
 def calculate_cart_total(cart: Cart) -> Decimal:
     total = Decimal("0")
 
-    for item in cart.cart_items:
+    for item in cart.items:
         total += item.product.price * item.quantity
 
     return total
+
+
+async def update_cart_item(
+    session: AsyncSession,
+    user_id: int,
+    cart_item_id: int,
+    quantity: int,
+) -> CartItem:
+    result = await session.execute(
+        select(CartItem)
+        .join(
+            Cart,
+            CartItem.cart_id == Cart.id,
+        )
+        .where(
+            CartItem.id == cart_item_id,
+            Cart.user_id == user_id,
+        )
+        .options(
+            selectinload(CartItem.product)
+        )
+    )
+
+    cart_item = result.scalar_one_or_none()
+
+    if cart_item is None:
+        raise ValueError(
+            "Cart item not found."
+        )
+
+    if not cart_item.product.is_available:
+        raise ValueError(
+            "Product is no longer available."
+        )
+
+    if quantity <= 0:
+        raise ValueError(
+            "Quantity must be greater than zero."
+        )
+
+    if quantity > cart_item.product.stock_quantity:
+        raise ValueError(
+            "Requested quantity exceeds available stock."
+        )
+
+    cart_item.quantity = quantity
+
+    await session.flush()
+
+    return cart_item
+
+
+async def remove_cart_item(
+    session: AsyncSession,
+    user_id: int,
+    cart_item_id: int,
+) -> None:
+    result = await session.execute(
+        select(CartItem.id)
+        .join(
+            Cart,
+            CartItem.cart_id == Cart.id,
+        )
+        .where(
+            CartItem.id == cart_item_id,
+            Cart.user_id == user_id,
+        )
+    )
+
+    item_id = result.scalar_one_or_none()
+
+    if item_id is None:
+        raise ValueError(
+            "Cart item not found."
+        )
+
+    await session.execute(
+        delete(CartItem)
+        .where(CartItem.id == item_id)
+    )
+
+    await session.flush()
+
+
+async def validate_cart(
+    session: AsyncSession,
+    user_id: int,
+) -> Cart:
+    cart = await get_user_cart(
+        session=session,
+        user_id=user_id,
+    )
+
+    if cart is None:
+        raise ValueError(
+            "Cart not found."
+        )
+
+    if not cart.items:
+        raise ValueError(
+            "Cart is empty."
+        )
+
+    for item in cart.items:
+        product = item.product
+
+        if product is None:
+            raise ValueError(
+                "A product in the cart no longer exists."
+            )
+
+        if not product.is_available:
+            raise ValueError(
+                f"Product '{product.name}' is no longer available."
+            )
+
+        if item.quantity <= 0:
+            raise ValueError(
+                f"Invalid quantity for product '{product.name}'."
+            )
+
+        if item.quantity > product.stock_quantity:
+            raise ValueError(
+                f"Requested quantity for '{product.name}' "
+                "exceeds available stock."
+            )
+
+    return cart
