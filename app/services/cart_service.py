@@ -17,7 +17,7 @@ async def get_user_cart(
         select(Cart)
         .where(Cart.user_id == user_id)
         .options(
-            selectinload(Cart.items)
+            selectinload(Cart.cart_items)
             .selectinload(CartItem.product)
         )
     )
@@ -80,7 +80,7 @@ async def add_product_to_cart(
     if product is None:
         raise ValueError("Product not found.")
 
-    if not product.is_available:
+    if product.inventory <= 0:
         raise ValueError("Product is not available.")
 
     if quantity <= 0:
@@ -88,7 +88,7 @@ async def add_product_to_cart(
             "Quantity must be greater than zero."
         )
 
-    if quantity > product.stock_quantity:
+    if quantity > product.inventory:
         raise ValueError(
             "Requested quantity exceeds available stock."
         )
@@ -107,7 +107,7 @@ async def add_product_to_cart(
     if cart_item is not None:
         new_quantity = cart_item.quantity + quantity
 
-        if new_quantity > product.stock_quantity:
+        if new_quantity > product.inventory:
             raise ValueError(
                 "Requested quantity exceeds available stock."
             )
@@ -141,7 +141,7 @@ async def view_user_cart(
 def calculate_cart_total(cart: Cart) -> Decimal:
     total = Decimal("0")
 
-    for item in cart.items:
+    for item in cart.cart_items:
         total += item.product.price * item.quantity
 
     return total
@@ -175,7 +175,7 @@ async def update_cart_item(
             "Cart item not found."
         )
 
-    if not cart_item.product.is_available:
+    if cart_item.product.inventory <= 0:
         raise ValueError(
             "Product is no longer available."
         )
@@ -185,7 +185,7 @@ async def update_cart_item(
             "Quantity must be greater than zero."
         )
 
-    if quantity > cart_item.product.stock_quantity:
+    if quantity > cart_item.product.inventory:
         raise ValueError(
             "Requested quantity exceeds available stock."
         )
@@ -243,12 +243,12 @@ async def validate_cart(
             "Cart not found."
         )
 
-    if not cart.items:
+    if not cart.cart_items:
         raise ValueError(
             "Cart is empty."
         )
 
-    for item in cart.items:
+    for item in cart.cart_items:
         product = item.product
 
         if product is None:
@@ -256,7 +256,7 @@ async def validate_cart(
                 "A product in the cart no longer exists."
             )
 
-        if not product.is_available:
+        if product.inventory <= 0:
             raise ValueError(
                 f"Product '{product.name}' is no longer available."
             )
@@ -266,7 +266,7 @@ async def validate_cart(
                 f"Invalid quantity for product '{product.name}'."
             )
 
-        if item.quantity > product.stock_quantity:
+        if item.quantity > product.inventory:
             raise ValueError(
                 f"Requested quantity for '{product.name}' "
                 "exceeds available stock."

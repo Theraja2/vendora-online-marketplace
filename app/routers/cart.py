@@ -85,7 +85,7 @@ async def view_cart(
 
     items = []
 
-    for item in cart.items:
+    for item in cart.cart_items:
         subtotal = item.product.price * item.quantity
 
         items.append(

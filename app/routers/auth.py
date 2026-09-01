@@ -4,6 +4,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.user import UserCreate, UserResponse, UserLogin
+
 from app.database import get_session
 from app.models.enums import Role
 from app.models.user import User
