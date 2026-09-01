@@ -105,6 +105,10 @@ class Product(Base):
         nullable=False
     )
 
+    @property
+    def is_available(self) -> bool:
+        return self.inventory > 0
+
     # -------------------------
     # Relationships
     # -------------------------
