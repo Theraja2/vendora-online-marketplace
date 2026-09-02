@@ -4,16 +4,21 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.user import UserCreate, UserResponse, UserLogin
-
 from app.database import get_session
+from app.dependencies import get_current_user
 from app.models.enums import Role
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
     RefreshTokenRequest,
     TokenResponse,
 )
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import UserCreate, UserLogin, UserResponse
+from app.security import (
+    create_password_reset_token,
+    decode_password_reset_token,
+)
 from app.security.jwt import (
     REFRESH_TOKEN_TYPE,
     InvalidTokenError,
@@ -24,8 +29,8 @@ from app.security.jwt import (
 from app.security.password import (
     hash_password,
     verify_password,
-    waste_time_like_a_real_verify,
-)
+    waste_time_like_a_real_verify,)
+
 
 from app.schemas.auth import ForgotPasswordRequest
 
@@ -235,13 +240,12 @@ async def refresh_access_token(
         token_type="bearer",
     )
 
-
-
 @router.post("/forgot-password")
 async def forgot_password(
     data: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_session),
 ):
+    # Find the user by email
     result = await db.execute(
         select(User).where(User.email == data.email)
     )
@@ -254,7 +258,9 @@ async def forgot_password(
             detail="User not found",
         )
 
-    # STEP 1: Generate reset token
+    # =========================================================
+    # STEP 1: Generate password reset token
+    # =========================================================
     if data.reset_token is None:
         reset_token = create_password_reset_token(user.id)
 
@@ -263,66 +269,50 @@ async def forgot_password(
             "reset_token": reset_token,
         }
 
-    # STEP 2: Verify reset token
+    # =========================================================
+    # STEP 2: Verify password reset token
+    # =========================================================
     try:
-        token_user_id = decode_password_reset_token(data.reset_token)
+        token_user_id = decode_password_reset_token(
+            data.reset_token
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired password reset token",
         )
 
+    # Make sure the token belongs to the same user
     if token_user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid password reset token",
         )
 
+    # =========================================================
+    # STEP 3: Validate new password
+    # =========================================================
     if data.new_password is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password is required",
         )
 
-    # Hash and update the password
+    if len(data.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters",
+        )
+
+    # =========================================================
+    # STEP 4: Hash and save the new password
+    # =========================================================
     user.password = hash_password(data.new_password)
 
     await db.commit()
 
     return {
         "message": "Password reset successfully",
-    }
-
-
-@router.post("/change-password")
-async def change_password(
-    data: ChangePasswordRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_session),
-):
-    is_current_password_valid = verify_password(
-        data.current_password,
-        current_user.password,
-    )
-
-    if not is_current_password_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect",
-        )
-
-    if data.current_password == data.new_password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must be different from current password",
-        )
-
-    current_user.password = hash_password(data.new_password)
-
-    await db.commit()
-
-    return {
-        "message": "Password changed successfully",
     }
 
 
