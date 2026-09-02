@@ -15,8 +15,7 @@ class TokenResponse(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
     reset_token: str | None = None
-    new_password: str | None = Field(default=None, min_length=8)
-
+    new_password: str | None = None
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
